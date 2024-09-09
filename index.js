@@ -1,9 +1,24 @@
 require('dotenv').config();
-const axios = require('axios');
+const http = require('http');
+
+// Dummy server to bind to a port
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running\n');
+});
+
+// Listen on the port provided by Render, or default to 3000
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Bot is running on port ${PORT}`);
+});
+
 const TelegramBot = require('node-telegram-bot-api');
 const { ethers } = require('ethers');
+const axios = require('axios');
 
-// Initialize the provider
+// Initialize the bot and provider
+const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const provider = new ethers.providers.JsonRpcProvider(`https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`);
 
 const ERC20_ABI = [
@@ -12,7 +27,6 @@ const ERC20_ABI = [
 
 let walletList = {};
 let userStates = {}; // To track user states (for adding or editing wallets)
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
 // Start command that will show the wallet list with action buttons
 bot.onText(/\/start/, async (msg) => {
@@ -20,14 +34,7 @@ bot.onText(/\/start/, async (msg) => {
 
     // Initialize walletList for the chatId if not already set
     if (!walletList[chatId]) {
-        walletList[chatId] = [
-            '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-            '0x28C6c06298d514Db089934071355E5743bf21d60',
-            '0x503828976D22510aad0201ac7EC88293211D23Da',
-            '0x56eddb7aa87536c09ccc2793473599fd21a8b17f',
-            '0x5a52E96BAcdaBb82fd05763E25335261B270Efcb',
-            '0x46705dfff24256421a05d056c29e81bdc09723b8',
-        ];
+        walletList[chatId] = [];
     }
 
     await bot.sendMessage(chatId, 'Greetings!', {
