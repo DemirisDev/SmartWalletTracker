@@ -8,6 +8,8 @@ const { EvmChain } = require('@moralisweb3/common-evm-utils');
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const provider = new ethers.providers.JsonRpcProvider(`https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`);
 
+Moralis.start({ apiKey: process.env.MORALIS_API_KEY });
+
 let walletList = {};
 let userStates = {};
 
@@ -31,8 +33,6 @@ bot.onText(/\/start/, async (msg) => {
         }
     });
     showWalletList(chatId);
-
-    await Moralis.start({ apiKey: process.env.MORALIS_API_KEY });
     monitorTransactions(chatId);
 });
 
