@@ -4,6 +4,20 @@ const { ethers } = require('ethers');
 const Moralis = require('moralis').default;
 const { EvmChain } = require('@moralisweb3/common-evm-utils');
 
+const http = require('http');
+
+// Dummy server to bind to a port
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running\n');
+});
+
+// Listen on the port provided by Render, or default to 3000
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Bot is running on port ${PORT}`);
+});
+
 // Initialize the bot and provider
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const provider = new ethers.providers.JsonRpcProvider(`https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`);
