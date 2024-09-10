@@ -62,60 +62,62 @@ async function showWalletList(chatId) {
 
 // Function to monitor transactions for each wallet address in the list
 function monitorTransactions(chatId) {
-    let lastTimeStamp = 0;
     // Listen for new blocks
     provider.on('block', async (blockNumber) => {
-        const block = await provider.getBlockWithTransactions(blockNumber);
+        console.log(typeof blockNumber)
+        const lastBlock = blockNumber - 1;
+        const block = await provider.getBlockWithTransactions(lastBlock);
 
-        if (block.timestamp > lastTimeStamp) {
-            lastTimeStamp = block.timestamp;    //Prevent recapturing the same block
+        console.log(lastBlock)
 
-            const fromAddresses = new Set(block.transactions
-                .map(tx => tx.from.toLowerCase())
-            );
+        const fromAddresses = new Set(block.transactions
+            .map(tx => tx.from.toLowerCase())
+        );
 
-            for (const wallet of walletList[chatId].filter(fwallet => fromAddresses.has(fwallet.toLowerCase()))) {
-                try {
-                    const txHistory = await Moralis.EvmApi.wallets.getWalletHistory({
-                        address: wallet,
-                        chain: EvmChain.ETHEREUM,
-                        fromBlock: blockNumber,
-                        toBlock: blockNumber
-                    });
-                    const swapHistory = txHistory.result.filter(h => h.category === 'token swap');
+        for (const wallet of walletList[chatId].filter(fwallet => fromAddresses.has(fwallet.toLowerCase()))) {
+            console.log(wallet)
+            try {
+                const txHistory = await Moralis.EvmApi.wallets.getWalletHistory({
+                    address: wallet,
+                    chain: EvmChain.ETHEREUM,
+                    fromBlock: lastBlock,
+                    toBlock: lastBlock
+                });
+                console.log(txHistory.result)
+                const swapHistory = txHistory.result.filter(h => h.category === 'token swap');
+                console.log(swapHistory)
 
-                    for (const swap of swapHistory) {
-                        for (const item of swap.erc20Transfers) {
-                            console.log(item)
-                            const tokenAddress = item.address.lowercase;
-                            const tokenName = item.tokenName;
-                            const tokenSymbol = item.tokenSymbol;
-                            const swapType = item.fromAddress.equals(wallet) ? 'Sell' : 'Buy';
-                            const amount = item.valueFormatted;
-                            await bot.sendMessage(
-                                chatId,
-                                "New Transaction - " + swapType + "!\n" +
-                                "Wallet:\n`" + wallet + "`\n" +
-                                "Token Address:\n`" + tokenAddress + "`\n" +
-                                "Token Name: " + tokenName + "\n" +
-                                "Token Symbol: " + tokenSymbol + "\n" +
-                                "Amount: " + amount + "\n" +
-                                "Entry Time: " + lastTimeStamp + "\n",
-                                {
-                                    parse_mode: 'Markdown',
-                                    reply_markup: {
-                                        inline_keyboard: [[
-                                            { text: 'Buy on Banana Gun', url: `https://t.me/BananaGunSniper_bot` },
-                                            { text: 'Open on Dexscreener', url: `https://dexscreener.com/ethereum/${tokenAddress}` }
-                                        ]]
-                                    }
+                for (const swap of swapHistory) {
+                    for (const item of swap.erc20Transfers) {
+                        console.log(item)
+                        const tokenAddress = item.address.lowercase;
+                        const tokenName = item.tokenName;
+                        const tokenSymbol = item.tokenSymbol;
+                        const swapType = item.fromAddress.equals(wallet) ? 'Sell' : 'Buy';
+                        const amount = item.valueFormatted;
+                        await bot.sendMessage(
+                            chatId,
+                            "New Transaction - " + swapType + "!\n" +
+                            "Wallet:\n`" + wallet + "`\n" +
+                            "Token Address:\n`" + tokenAddress + "`\n" +
+                            "Token Name: " + tokenName + "\n" +
+                            "Token Symbol: " + tokenSymbol + "\n" +
+                            "Amount: " + amount + "\n" +
+                            "Entry Time: " + swap.blockTimestamp + "\n",
+                            {
+                                parse_mode: 'Markdown',
+                                reply_markup: {
+                                    inline_keyboard: [[
+                                        { text: 'Buy on Banana Gun', url: `https://t.me/BananaGunSniper_bot` },
+                                        { text: 'Open on Dexscreener', url: `https://dexscreener.com/ethereum/${tokenAddress}` }
+                                    ]]
                                 }
-                            );
-                        }
+                            }
+                        );
                     }
-                } catch (error) {
-                    console.error(error);
                 }
+            } catch (error) {
+                console.error(error);
             }
         }
     });
