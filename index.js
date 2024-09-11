@@ -4,20 +4,6 @@ const { ethers } = require('ethers');
 const Moralis = require('moralis').default;
 const { EvmChain } = require('@moralisweb3/common-evm-utils');
 
-const http = require('http');
-
-// Dummy server to bind to a port
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is running\n');
-});
-
-// Listen on the port provided by Render, or default to 3000
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Bot is running on port ${PORT}`);
-});
-
 // Initialize the bot and provider
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 const provider = new ethers.providers.JsonRpcProvider(`https://mainnet.infura.io/v3/${process.env.INFURA_API_KEY}`);
@@ -47,7 +33,6 @@ bot.onText(/\/start/, async (msg) => {
         }
     });
     showWalletList(chatId);
-    monitorTransactions(chatId);
 });
 
 // Function to show the list of wallets with buttons for Edit and Remove
@@ -74,67 +59,91 @@ async function showWalletList(chatId) {
     }
 }
 
-// Function to monitor transactions for each wallet address in the list
-function monitorTransactions(chatId) {
-    // Listen for new blocks
-    provider.on('block', async (blockNumber) => {
-        console.log(typeof blockNumber)
-        const lastBlock = blockNumber - 1;
-        const block = await provider.getBlockWithTransactions(lastBlock);
+// Listen to monitor transactions for each wallet address in the list (Parallel Fetching)
+provider.on('block', async (blockNumber) => {
+    const block = await provider.getBlockWithTransactions(blockNumber);
 
-        console.log(lastBlock)
+    console.log(`New Block: ${blockNumber}`);
 
-        const fromAddresses = new Set(block.transactions
-            .map(tx => tx.from.toLowerCase())
-        );
+    const fromAddresses = new Set(block.transactions.map(tx => tx.from.toLowerCase()));
 
+    const fetchWalletPromises = [];
+
+    for (const chatId of Object.keys(walletList)) {
+        console.log(`Processing chatId: ${chatId}`);
+
+        // Add fetch promises for each wallet
         for (const wallet of walletList[chatId].filter(fwallet => fromAddresses.has(fwallet.toLowerCase()))) {
-            console.log(wallet)
-            try {
-                const txHistory = await Moralis.EvmApi.wallets.getWalletHistory({
-                    address: wallet,
-                    chain: EvmChain.ETHEREUM,
-                    fromBlock: lastBlock,
-                    toBlock: lastBlock
-                });
-                console.log(txHistory.result)
-                const swapHistory = txHistory.result.filter(h => h.category === 'token swap');
-                console.log(swapHistory)
-
-                for (const swap of swapHistory) {
-                    for (const item of swap.erc20Transfers) {
-                        console.log(item)
-                        const tokenAddress = item.address.lowercase;
-                        const tokenName = item.tokenName;
-                        const tokenSymbol = item.tokenSymbol;
-                        const swapType = item.fromAddress.equals(wallet) ? 'Sell' : 'Buy';
-                        const amount = item.valueFormatted;
-                        await bot.sendMessage(
-                            chatId,
-                            "New Transaction - " + swapType + "!\n" +
-                            "Wallet:\n`" + wallet + "`\n" +
-                            "Token Address:\n`" + tokenAddress + "`\n" +
-                            "Token Name: " + tokenName + "\n" +
-                            "Token Symbol: " + tokenSymbol + "\n" +
-                            "Amount: " + amount + "\n" +
-                            "Entry Time: " + swap.blockTimestamp + "\n",
-                            {
-                                parse_mode: 'Markdown',
-                                reply_markup: {
-                                    inline_keyboard: [[
-                                        { text: 'Buy on Banana Gun', url: `https://t.me/BananaGunSniper_bot` },
-                                        { text: 'Open on Dexscreener', url: `https://dexscreener.com/ethereum/${tokenAddress}` }
-                                    ]]
-                                }
-                            }
-                        );
-                    }
-                }
-            } catch (error) {
-                console.error(error);
-            }
+            console.log(`Processing wallet: ${wallet}`);
+            fetchWalletPromises.push(fetchWalletTransactionHistory(chatId, wallet.toLowerCase(), blockNumber));
         }
-    });
+    }
+
+    // Run all fetches in parallel
+    await Promise.all(fetchWalletPromises);
+});
+
+// Fetch transaction history for a specific wallet (with retries and delay)
+async function fetchWalletTransactionHistory(chatId, wallet, blockNumber) {
+    let fetchCount = 0;
+    while (fetchCount < 10) {
+        console.log(`Fetch attempt ${fetchCount + 1} for wallet: ${wallet}`);
+
+        try {
+            const txHistory = await Moralis.EvmApi.wallets.getWalletHistory({
+                address: wallet,
+                chain: EvmChain.ETHEREUM,
+                fromBlock: blockNumber,
+                toBlock: blockNumber
+            });
+
+            console.log(`Transaction history for wallet ${wallet}:`, txHistory);
+
+            const swapHistory = txHistory.result.filter(h => h.category === 'token swap');
+            console.log(`Swap history for wallet ${wallet}:`, swapHistory);
+
+            for (const swap of swapHistory) {
+                for (const item of swap.erc20Transfers) {
+                    console.log(`Processing swap for wallet ${wallet}:`, item);
+                    const tokenAddress = item.address.lowercase;
+                    const tokenName = item.tokenName;
+                    const tokenSymbol = item.tokenSymbol;
+                    const swapType = item.fromAddress.equals(wallet) ? 'Sell' : 'Buy';
+                    const amount = item.valueFormatted;
+
+                    await bot.sendMessage(
+                        chatId,
+                        `New Transaction - ${swapType}!\n` +
+                        `Wallet:\n\`${wallet}\`\n` +
+                        `Token Address:\n\`${tokenAddress}\`\n` +
+                        `Token Name: ${tokenName}\n` +
+                        `Token Symbol: ${tokenSymbol}\n` +
+                        `Amount: ${amount}\n` +
+                        `Entry Time: ${swap.blockTimestamp}\n`,
+                        {
+                            parse_mode: 'Markdown',
+                            reply_markup: {
+                                inline_keyboard: [[
+                                    { text: 'Buy on Banana Gun', url: `https://t.me/BananaGunSniper_bot` },
+                                    { text: 'Open on Dexscreener', url: `https://dexscreener.com/ethereum/${tokenAddress}` }
+                                ]]
+                            }
+                        }
+                    );
+                }
+            }
+
+            if (swapHistory.length) {
+                break; // Exit loop if transactions are found
+            }
+        } catch (error) {
+            console.error(`Error fetching history for wallet ${wallet}:`, error);
+        }
+
+        // Delay before the next retry (1 second)
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        fetchCount++;
+    }
 }
 
 // Handle button presses for Remove, Edit actions
